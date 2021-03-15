@@ -1,65 +1,160 @@
-import Head from 'next/head'
-import styles from '../styles/Home.module.css'
+import { useState, useRef, useEffect } from "react";
+import { BsUpload } from "react-icons/bs";
+import {
+  Heading,
+  Button,
+  Input,
+  InputGroup,
+  Container,
+  Box,
+  Divider,
+  Badge,
+  ListItem,
+  List,
+  Text,
+  Icon,
+  InputLeftElement,
+} from "@chakra-ui/react";
+import ProtectedPage from "../components/protectedPage";
+
+import { useAuth, useInterval } from "../hooks";
 
 export default function Home() {
+  const [file, setFile] = useState("");
+  const [audioSrc, setAudioSrc] = useState("");
+  const audioRef = useRef(null);
+  const { token } = useAuth();
+  const [conversationId, setConversationId] = useState(null);
+  const [jobId, setJobId] = useState(null);
+  const [status, setStatus] = useState("not started");
+  const [messages, setMessages] = useState([]);
+
+  useEffect(() => {
+    const src = URL.createObjectURL(new Blob([file], { type: "audio/mpeg" }));
+    setAudioSrc(src);
+  }, [file]);
+
+  useEffect(() => {
+    if (status === "completed") {
+      getTranscripts();
+    }
+  }, [status]);
+
+  useInterval(
+    () => {
+      fetch(`https://api.symbl.ai/v1/job/${jobId}`, {
+        method: "GET",
+        headers: {
+          "x-api-key": token,
+        },
+      })
+        .then((rawResult) => rawResult.json())
+        .then((result) => setStatus(result.status));
+    },
+    1000,
+    status === "completed" || (status !== "not_started" && !jobId)
+  );
+
+  const getTranscripts = () => {
+    fetch(`https://api.symbl.ai/v1/conversations/${conversationId}/messages`, {
+      method: "GET",
+      headers: {
+        "x-api-key": token,
+        "Content-Type": "application/json",
+      },
+      mode: "cors",
+    })
+      .then((rawResult) => rawResult.json())
+      .then((result) => setMessages(result.messages));
+  };
+
+  const submitFile = (file) => {
+    fetch("https://api.symbl.ai/v1/process/audio", {
+      method: "POST",
+      headers: {
+        "x-api-key": token,
+        "Content-Type": "audio/mpeg",
+      },
+      body: file,
+      json: true,
+    })
+      .then((rawResult) => rawResult.json())
+      .then((result) => {
+        setConversationId(result.conversationId);
+        setJobId(result.jobId);
+        setStatus("in_progress");
+      });
+  };
+
   return (
-    <div className={styles.container}>
-      <Head>
-        <title>Create Next App</title>
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
-
-      <main className={styles.main}>
-        <h1 className={styles.title}>
-          Welcome to <a href="https://nextjs.org">Next.js!</a>
-        </h1>
-
-        <p className={styles.description}>
-          Get started by editing{' '}
-          <code className={styles.code}>pages/index.js</code>
-        </p>
-
-        <div className={styles.grid}>
-          <a href="https://nextjs.org/docs" className={styles.card}>
-            <h3>Documentation &rarr;</h3>
-            <p>Find in-depth information about Next.js features and API.</p>
-          </a>
-
-          <a href="https://nextjs.org/learn" className={styles.card}>
-            <h3>Learn &rarr;</h3>
-            <p>Learn about Next.js in an interactive course with quizzes!</p>
-          </a>
-
-          <a
-            href="https://github.com/vercel/next.js/tree/master/examples"
-            className={styles.card}
+    <ProtectedPage>
+      <Container maxWidth="1200px">
+        <Box marginBottom="1rem">
+          <InputGroup marginBottom="1.5rem">
+            <InputLeftElement
+              pointerEvents="none"
+              children={<Icon as={BsUpload} />}
+            />
+            <Input
+              style={{ paddingTop: "0.2rem" }}
+              type="file"
+              id="input"
+              accept="audio/*"
+              ref={audioRef}
+              onChange={(e) => setFile(e.target.files[0])}
+            />
+          </InputGroup>
+          <Box bg="transparent" align="center" marginBottom="2rem">
+            <audio
+              style={{ outline: "none" }}
+              id="audio-summary"
+              ref={audioRef}
+              controls
+              src={audioSrc}
+            />
+          </Box>
+          <Button
+            color="white"
+            bg="rgb(107, 185, 240)"
+            size="md"
+            // disabled={submitted}
+            onClick={() => {
+              submitFile(file);
+            }}
           >
-            <h3>Examples &rarr;</h3>
-            <p>Discover and deploy boilerplate example Next.js projects.</p>
-          </a>
-
-          <a
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template&utm_campaign=create-next-app"
-            className={styles.card}
-          >
-            <h3>Deploy &rarr;</h3>
-            <p>
-              Instantly deploy your Next.js site to a public URL with Vercel.
-            </p>
-          </a>
-        </div>
-      </main>
-
-      <footer className={styles.footer}>
-        <a
-          href="https://vercel.com?utm_source=create-next-app&utm_medium=default-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
+            {status === "not started"
+              ? "Send it"
+              : status === "in_progress"
+              ? "processing..."
+              : "Send it"}
+          </Button>
+        </Box>
+        <Divider orientation="horizontal" />
+        <Heading align="center">Transcript: </Heading>
+        <Box
+          marginTop="2rem"
+          align="center"
+          boxShadow="dark-lg"
+          p="6"
+          rounded="md"
+          bg="white"
         >
-          Powered by{' '}
-          <img src="/vercel.svg" alt="Vercel Logo" className={styles.logo} />
-        </a>
-      </footer>
-    </div>
-  )
+          <Container margin="1rem">
+            <List spacing={3} margin="2rem">
+              {messages.map((message) => (
+                <ListItem>
+                  <Container>
+                    <Text fontSize="lg">{message.text}</Text>
+                    <Badge color="rgb(25, 181, 254)">
+                      {`${new Date(message.startTime).toDateString()} `}
+                    </Badge>
+                  </Container>
+                </ListItem>
+              ))}
+            </List>
+          </Container>
+        </Box>
+      </Container>
+    </ProtectedPage>
+  );
 }
